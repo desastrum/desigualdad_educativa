@@ -1,0 +1,147 @@
+---
+title: "Análisis de Desigualdad Educativa"
+author: "Alejandro Jiménez Salazar
+(@des_astrum)"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: readable
+---
+
+# Introducción
+
+Este informe se enmarca en un proyecto de portafolio personal para la práctica de análisis e interpretación de datos usando RStudio. 
+En este caso, se presenta un análisis exploratorio sobre posibles desigualdades en el rendimiento académico a partir de variables socioeconómicas simuladas: estrato, horas de estudio y acceso a internet. El objetivo es evaluar si estas variables tienen algún efecto sobre la nota final de los estudiantes.
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(janitor)
+library(forcats)
+```
+
+### Carga y preparación de datos
+
+```{r}
+set.seed(2025)
+
+educacion <- data.frame(
+  estudiante_id = 1:100,
+  estrato = sample(1:6, 100, replace = TRUE),
+  genero = sample(c("M", "F"), 100, replace = TRUE),
+  horas_estudio = round(rnorm(100, mean = 4.5, sd = 1.2), 1),
+  acceso_internet = sample(c("Sí", "No"), 100, replace = TRUE, prob = c(0.8, 0.2)),
+  nota_final = round(rnorm(100, mean = 70, sd = 10), 1)
+)
+```
+
+## 1. Análisis descriptivo
+
+#### ¿Cuál es la nota promedio por estrato?
+
+```{r}
+# nota promedio por estrato
+educacion%>%
+  group_by(estrato)%>%
+  summarise(nota_promedio=mean(nota_final,na.rm=T))
+```
+
+#### ¿Hay diferencias en las horas de estudio entre quienes tienen o no internet?
+
+```{r}
+# podemos revisar el promedio de horas de estudio segpun la conectividad
+educacion%>%
+  group_by(acceso_internet)%>%
+  summarise(promedio_horas_estudio=mean(horas_estudio,na.rm=T))
+```
+
+No parece haber una diferencia sustancial en el promedio de horas de estudio en función al acceso a internet.
+
+## 2. Transformación
+
+### Crea una nueva variable grupo_estrato:
+
+#### "Bajo" si estrato es 1, 2
+#### "Medio" si es 3, 4
+#### "Alto" si es 5, 6
+
+```{r}
+# creamos la nueva variable con la función mutate
+educacion<-educacion%>%
+  mutate(grupo_estrato=case_when(estrato>=1&estrato<=2~"Bajo",
+                                 estrato>=3&estrato<=4~"Medio",
+                                 estrato>=5&estrato<=6~"Alto"))
+
+# chequeamos si quedó en nuestro nuevo objeto 'educacion'
+```
+
+## 3. Visualización
+
+#### Gráfico de barras del promedio de nota por grupo_estrato.
+
+```{r}
+educacion%>%
+  group_by(grupo_estrato)%>%
+  summarise(nota_promedio=mean(nota_final,na.rm=T))%>%
+  ggplot(mapping = aes(x=grupo_estrato,
+                       y=nota_promedio,
+                       fill=grupo_estrato))+
+  geom_col(show.legend = F,)+
+  labs(title = "Nota promedio según estrato",
+       x="Estrato",
+       y="Nota promedio")+
+  theme_classic()
+```
+Este gráfico de barras muestra el promedio de la nota final para cada grupo de estrato socioeconómico. Visualmente se observa que los estudiantes pertenecientes al grupo de estrato alto (5 y 6) presentan una nota promedio ligeramente superior en comparación con los grupos medio y bajo. Sin embargo, la diferencia entre los grupos no parece ser sustancial, lo que sugiere que, en este conjunto de datos, el estrato podría no tener un efecto fuerte o claro sobre el rendimiento académico promedio.
+
+#### Boxplot comparando horas_estudio entre quienes tienen o no acceso a internet.
+
+```{r}
+educacion%>%
+  ggplot(mapping = aes(x=acceso_internet,
+                       y=horas_estudio,
+                       fill=acceso_internet))+
+  geom_boxplot(show.legend = F)+
+  labs(title = "Horas de estudio según la conectividad",
+       x="Accedo a internet",
+       y="Horas de estudio")+
+  theme_bw()
+```
+El gráfico anterior muestra la distribución de las horas de estudio en función del acceso a internet. A primera vista, la mediana de horas de estudio es prácticamente igual entre quienes tienen acceso a internet y quienes no. Sin embargo, la dispersión es ligeramente distinta:
+
+Los estudiantes sin acceso a internet parecen tener una distribución más concentrada en la parte alta (más homogénea, menos valores extremos).
+
+Los que sí tienen acceso presentan un ligero outlier hacia valores bajos de estudio.
+
+Esto sugiere que el acceso a internet no está asociado con una diferencia clara en las horas de estudio, al menos en estos datos simulados.
+
+## 4. Modelado 
+
+#### Ajusta un modelo para predecir la nota_final en función a las horas_estudio, el grupo_estrato y el acceso_internet
+
+```{r}
+# modelo de regresión lineal
+modelo_educacion<-lm(nota_final~horas_estudio+grupo_estrato+acceso_internet,
+     data=educacion)
+```
+
+#### Interpretación del modelo
+
+```{r}
+# realizamos un resumen del modelo para poder interpretarlo
+summary(modelo_educacion)
+```
+
+El modelo de regresión ajustado busca predecir la nota final de los estudiantes a partir de tres variables explicativas: las horas de estudio, el grupo de estrato socioeconómico (bajo, medio o alto), y el acceso a internet (Sí o No). El intercepto del modelo es de 81.46, lo que representa la nota esperada para un estudiante del grupo de estrato alto, sin acceso a internet, y que no reporta horas de estudio. Esta es la categoría de referencia para las variables categóricas.
+
+El coeficiente asociado a las horas de estudio es -1.39. Esto indica que, según el modelo, por cada hora adicional de estudio, la nota final disminuye en promedio 1.39 puntos. Este resultado es contraintuitivo y no estadísticamente significativo al nivel del 5% (p = 0.096), aunque se aproxima al umbral del 10%. Podría sugerir una relación no lineal, ruido en los datos, o que estudiantes con menor desempeño dedican más tiempo a estudiar como forma de compensación.
+
+En cuanto al grupo de estrato, el modelo muestra que los estudiantes del grupo bajo obtienen en promedio 1.19 puntos menos que los del grupo alto, mientras que los del grupo medio obtienen 4.24 puntos menos. Sin embargo, ninguno de estos coeficientes es estadísticamente significativo al 5%. El efecto del grupo medio, con p = 0.0818, se aproxima al umbral del 10%, por lo que podría explorarse más a fondo con una muestra más grande.
+
+Respecto al acceso a internet, el modelo sugiere que los estudiantes con acceso presentan, en promedio, 1.94 puntos menos en su nota final que quienes no tienen acceso. Este resultado también va en contra de lo esperado y no es significativo (p = 0.4476).
+
+En conjunto, el modelo tiene un poder explicativo bajo. El R² es de 0.076, lo que significa que solo el 7.6% de la variación en las notas se explica por las variables incluidas. Además, el valor p global del modelo (0.1061) indica que, en conjunto, las variables no explican la variación en la nota final de forma estadísticamente significativa.
+
+Estos resultados deben leerse con precaución, ya que los datos utilizados son simulados y podrían no reflejar patrones reales. No obstante, este ejercicio permite ir incorporando la lógica de interpretación de modelos lineales múltiples y afianzar competencias en análisis estadístico aplicado, lo cual es el objetivo de este portafolio de ejercicios y práctica.
